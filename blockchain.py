@@ -50,3 +50,11 @@ class Blockchain:
 
     def add_node(self, address):
         self.nodes.add(address)
+
+    def verify_document(self, document_hash):
+        # Kiểm tra xem tài liệu có tồn tại trong các giao dịch đã lưu trong blockchain không
+        for block in self.chain:
+            for transaction in block['transactions']:
+                if transaction['document_hash'] == document_hash:
+                    return True  # Tài liệu không bị chỉnh sửa
+        return False  # Tài liệu không tồn tại hoặc đã bị chỉnh sửa

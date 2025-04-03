@@ -27,10 +27,10 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 
-# # 1️⃣ API tạo giao dịch mới
+# # 1️⃣ API lưu document hash vào blockchain nội bộ
 # lưu tài liệu quan trọng vào blockchain nội bộ (chỉ có các nhân viên trong công ty mới check được)
-@app.route('/add_transaction', methods=['POST'])
-def add_transaction():
+@app.route('/store_document', methods=['POST'])
+def store_document():
     # Kiểm tra xem file có trong request hay không
     if 'file' not in request.files:
         return jsonify({'message': 'Không có file trong request'}), 400
@@ -45,17 +45,21 @@ def add_transaction():
     file_content = file.read()
     document_hash = hashlib.sha256(file_content).hexdigest()  # Tạo hash từ nội dung file
 
-    # # Lưu file vào server (có thể tùy chỉnh đường dẫn)
-    # file_path = os.path.join(UPLOAD_FOLDER, document_hash + '.txt')
-    # file.save(file_path)
+    # Lưu document_hash vào blockchain
+    block_index = blockchain.add_transaction(document_hash)  # Thêm hash vào blockchain
 
-    # Thêm giao dịch vào blockchain (lưu document_hash)
-    index = blockchain.add_transaction(document_hash)
+    # Kiểm tra nếu số lượng giao dịch đạt một mức độ nào đó, bạn có thể tạo một block mới
+    if len(blockchain.transactions) >= 1:  # Ví dụ tạo block khi có ít nhất 1 giao dịch
+        previous_block = blockchain.get_previous_block()
+        previous_proof = previous_block['proof']
+        proof = blockchain.proof_of_work(previous_proof)
+        previous_hash = blockchain.hash_block(previous_block)
+        blockchain.create_block(proof, previous_hash)
 
     return jsonify({
-        'message': f'Tài liệu sẽ được ghi vào Block {index}',
-        'file_hash': document_hash
-        # 'file_saved_at': file_path
+        'message': 'Tài liệu đã được lưu vào blockchain',
+        'file_hash': document_hash,
+        'block_index': block_index
     }), 201
 
 # 2️⃣ API lưu tài liệu trên Ethereum
@@ -163,6 +167,64 @@ def sync_chain():
                 longest_chain = data['chain']
     blockchain.chain = longest_chain
     return jsonify({'message': 'Đã đồng bộ', 'chain': blockchain.chain}), 200
+
+# 6️⃣ API kiểm tra tài liệu trên blockchain nội bộ
+@app.route('/verify_document', methods=['POST'])
+def verify_document():
+    # Kiểm tra tài liệu trên blockchain nội bộ
+    if 'file' not in request.files:
+        return jsonify({'message': 'Không có file trong request'}), 400
+
+    file = request.files['file']
+
+    # Kiểm tra nếu không có file được chọn
+    if file.filename == '':
+        return jsonify({'message': 'Không có file được chọn'}), 400
+
+    try:
+        # Đọc nội dung của file để tạo hash
+        file_content = file.read()
+        document_hash = hashlib.sha256(file_content).hexdigest()  # Tạo hash từ nội dung file
+
+        # Kiểm tra tài liệu trên blockchain nội bộ
+        if blockchain.verify_document(document_hash):
+            return jsonify({'message': 'Tài liệu không bị chỉnh sửa trên blockchain nội bộ', 'document_hash': document_hash}), 200
+        else:
+            return jsonify({'message': 'Tài liệu đã bị chỉnh sửa hoặc không tồn tại trên blockchain nội bộ', 'document_hash': document_hash}), 400
+
+    except Exception as e:
+        return jsonify({'message': 'Lỗi khi kiểm tra tài liệu', 'error': str(e)}), 500
+
+# 7️⃣ API kiểm tra tài liệu trên Ethereum
+@app.route('/verify_on_ethereum', methods=['POST'])
+def verify_on_ethereum():
+    # Kiểm tra xem file có trong request hay không
+    if 'file' not in request.files:
+        return jsonify({'message': 'Không có file trong request'}), 400
+
+    file = request.files['file']
+
+    # Kiểm tra nếu không có file được chọn
+    if file.filename == '':
+        return jsonify({'message': 'Không có file được chọn'}), 400
+
+    try:
+        # Đọc nội dung của file để tạo hash
+        file_content = file.read()
+        document_hash = hashlib.sha256(file_content).hexdigest()  # Tạo hash từ nội dung file
+
+        # Kiểm tra hash này có tồn tại trong blockchain Ethereum
+        is_stored = contract.functions.verifyDocument(document_hash).call()
+
+        if is_stored:
+            return jsonify({'message': 'Tài liệu không bị chỉnh sửa trên Ethereum', 'document_hash': document_hash}), 200
+        else:
+            return jsonify({'message': 'Tài liệu đã bị chỉnh sửa hoặc không tồn tại trên Ethereum', 'document_hash': document_hash}), 400
+
+    except Exception as e:
+        return jsonify({'message': 'Lỗi khi kiểm tra tài liệu trên Ethereum', 'error': str(e)}), 500
+
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
