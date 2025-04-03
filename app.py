@@ -1,21 +1,130 @@
 from flask import Flask, jsonify, request  # Flask để tạo API
 import requests  # Gửi request đến các node khác trong mạng P2P
+import os  # Xuất hành file
 import hashlib  # Tạo mã hash
 import json  # Lưu trữ dữ liệu blockchain
 import time  # Thêm timestamp cho block
 from blockchain import Blockchain  # Import class Blockchain từ file blockchain.py
+from web3 import Web3
+
+# Kết nối với Ganache
+web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
+
+# Địa chỉ contract của bạn sau khi deploy
+contract_address = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+
+# ABI của smart contract (copy từ file JSON sau khi compile)
+contract_abi = [{"anonymous": False , "inputs": [{"indexed": False , "internalType": "string", "name": "documentHash", "type": "string"}], "name": "DocumentStored", "type": "event"}, {"inputs": [{"internalType": "string", "name": "documentHash", "type": "string"}], "name": "storeDocument", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "string", "name": "documentHash", "type": "string"}], "name": "verifyDocument", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"}]
+
+# Load contract
+contract = web3.eth.contract(address=contract_address, abi=contract_abi)
 
 app = Flask(__name__)
 blockchain = Blockchain()
+# Đảm bảo thư mục lưu trữ file đã tồn tại
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
-# 1️⃣ API tạo giao dịch mới
+
+# # 1️⃣ API tạo giao dịch mới
+# lưu tài liệu quan trọng vào blockchain nội bộ (chỉ có các nhân viên trong công ty mới check được)
 @app.route('/add_transaction', methods=['POST'])
 def add_transaction():
-    json_data = request.get_json()
-    if not json_data.get('document_hash'):
-        return jsonify({'message': 'Thiếu dữ liệu'}), 400
-    index = blockchain.add_transaction(json_data['document_hash'])
-    return jsonify({'message': f'Tài liệu sẽ được ghi vào Block {index}'}), 201
+    # Kiểm tra xem file có trong request hay không
+    if 'file' not in request.files:
+        return jsonify({'message': 'Không có file trong request'}), 400
+
+    file = request.files['file']
+    
+    # Kiểm tra nếu không có file được chọn
+    if file.filename == '':
+        return jsonify({'message': 'Không có file được chọn'}), 400
+
+    # Đọc nội dung của file để tạo hash
+    file_content = file.read()
+    document_hash = hashlib.sha256(file_content).hexdigest()  # Tạo hash từ nội dung file
+
+    # # Lưu file vào server (có thể tùy chỉnh đường dẫn)
+    # file_path = os.path.join(UPLOAD_FOLDER, document_hash + '.txt')
+    # file.save(file_path)
+
+    # Thêm giao dịch vào blockchain (lưu document_hash)
+    index = blockchain.add_transaction(document_hash)
+
+    return jsonify({
+        'message': f'Tài liệu sẽ được ghi vào Block {index}',
+        'file_hash': document_hash
+        # 'file_saved_at': file_path
+    }), 201
+
+# 2️⃣ API lưu tài liệu trên Ethereum
+@app.route('/store_on_ethereum', methods=['POST'])
+def store_on_ethereum():
+    # Kiểm tra xem file có trong request hay không
+    if 'file' not in request.files:
+        return jsonify({'message': 'Không có file trong request'}), 400
+
+    # Lấy file từ request
+    file = request.files['file']
+    
+    # Kiểm tra nếu không có file được chọn
+    if file.filename == '':
+        return jsonify({'message': 'Không có file được chọn'}), 400
+
+    # Đọc nội dung của file để tạo hash
+    try:
+        file_content = file.read()
+        document_hash = hashlib.sha256(file_content).hexdigest()  # Tạo hash từ nội dung file
+    except Exception as e:
+        return jsonify({'message': 'Lỗi khi đọc file', 'error': str(e)}), 500
+
+    # Lấy private key từ JSON body
+    private_key = request.json.get('private_key')
+    if not private_key:
+        return jsonify({'message': 'Thiếu private key trong body'}), 400
+
+    # Tạo đối tượng tài khoản từ private key
+    try:
+        account = web3.eth.account.privateKeyToAccount(private_key)
+    except Exception as e:
+        return jsonify({'message': 'Lỗi khi chuyển đổi private key', 'error': str(e)}), 500
+
+    # Gọi smart contract Ethereum để lưu document hash vào blockchain Ethereum
+    try:
+        # Tạo giao dịch
+        transaction = contract.functions.storeDocument(document_hash).buildTransaction({
+            'chainId': 31337,  # Chain ID của mạng của bạn
+            'gas': 10000,  # Gas limit (tùy chỉnh)
+            'gasPrice': web3.toWei('10', 'gwei'),
+            'nonce': web3.eth.getTransactionCount(account.address),
+        })
+
+        # Ký giao dịch bằng private key
+        signed_txn = web3.eth.account.signTransaction(transaction, private_key)
+
+        # Gửi giao dịch đã ký
+        tx_hash = web3.eth.sendRawTransaction(signed_txn.rawTransaction)
+
+        # Đợi giao dịch được xác nhận
+        web3.eth.waitForTransactionReceipt(tx_hash)
+
+        # Trả về thông tin giao dịch
+        return jsonify({
+            'message': 'Tài liệu đã được lưu vào Ethereum',
+            'file_hash': document_hash,
+            'ethereum_transaction_hash': tx_hash.hex()
+        }), 201
+
+    except Exception as e:
+        return jsonify({'message': 'Lỗi khi lưu vào Ethereum', 'error': str(e)}), 500
+# @app.route('/add_transaction', methods=['POST'])
+# def add_transaction():
+#     json_data = request.get_json()
+#     if not json_data.get('document_hash'):
+#         return jsonify({'message': 'Thiếu dữ liệu'}), 400
+#     index = blockchain.add_transaction(json_data['document_hash'])
+#     return jsonify({'message': f'Tài liệu sẽ được ghi vào Block {index}'}), 201
 
 # 2️⃣ API tạo block mới
 @app.route('/mine_block', methods=['GET'])
