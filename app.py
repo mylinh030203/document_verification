@@ -6,18 +6,25 @@ import json  # Lưu trữ dữ liệu blockchain
 import time  # Thêm timestamp cho block
 from blockchain import Blockchain  # Import class Blockchain từ file blockchain.py
 from web3 import Web3
+from eth_account import Account
 
 # Kết nối với Ganache
 web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
 
 # Địa chỉ contract của bạn sau khi deploy
-contract_address = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+contract_address = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 
 # ABI của smart contract (copy từ file JSON sau khi compile)
 contract_abi = [{"anonymous": False , "inputs": [{"indexed": False , "internalType": "string", "name": "documentHash", "type": "string"}], "name": "DocumentStored", "type": "event"}, {"inputs": [{"internalType": "string", "name": "documentHash", "type": "string"}], "name": "storeDocument", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "string", "name": "documentHash", "type": "string"}], "name": "verifyDocument", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"}]
 
 # Load contract
 contract = web3.eth.contract(address=contract_address, abi=contract_abi)
+
+if web3.is_connected():
+    print("✅ Đã kết nối với Ethereum node!")
+else:
+    print("❌ Không thể kết nối với Ethereum node!")
+
 
 app = Flask(__name__)
 blockchain = Blockchain()
@@ -84,34 +91,38 @@ def store_on_ethereum():
         return jsonify({'message': 'Lỗi khi đọc file', 'error': str(e)}), 500
 
     # Lấy private key từ JSON body
-    private_key = request.json.get('private_key')
+    # private_key = request.json.get('private_key')
+    private_key = request.form.get('private_key')
     if not private_key:
         return jsonify({'message': 'Thiếu private key trong body'}), 400
 
     # Tạo đối tượng tài khoản từ private key
     try:
-        account = web3.eth.account.privateKeyToAccount(private_key)
+        # account = web3.eth.account.private_key_to_account(private_key)
+        account = Account.from_key(private_key)
     except Exception as e:
         return jsonify({'message': 'Lỗi khi chuyển đổi private key', 'error': str(e)}), 500
-
+    func_call = contract.functions.storeDocument(document_hash)
+    print(type(func_call))  # kiểm tra có phải ContractFunction không
     # Gọi smart contract Ethereum để lưu document hash vào blockchain Ethereum
+    # print(web3.eth.chain_id)
     try:
         # Tạo giao dịch
-        transaction = contract.functions.storeDocument(document_hash).buildTransaction({
+        transaction = contract.functions.storeDocument(document_hash).build_transaction({
             'chainId': 31337,  # Chain ID của mạng của bạn
-            'gas': 10000,  # Gas limit (tùy chỉnh)
-            'gasPrice': web3.toWei('10', 'gwei'),
-            'nonce': web3.eth.getTransactionCount(account.address),
+            'gas': 100000,  # Gas limit (tùy chỉnh)
+            'gasPrice': web3.to_wei('10', 'gwei'),
+            'nonce': web3.eth.get_transaction_count(account.address),
         })
 
         # Ký giao dịch bằng private key
-        signed_txn = web3.eth.account.signTransaction(transaction, private_key)
+        signed_txn = web3.eth.account.sign_transaction(transaction, private_key)
 
         # Gửi giao dịch đã ký
-        tx_hash = web3.eth.sendRawTransaction(signed_txn.rawTransaction)
+        tx_hash = web3.eth.send_raw_transaction(signed_txn.raw_transaction)
 
         # Đợi giao dịch được xác nhận
-        web3.eth.waitForTransactionReceipt(tx_hash)
+        web3.eth.wait_for_transaction_receipt(tx_hash)
 
         # Trả về thông tin giao dịch
         return jsonify({
@@ -224,6 +235,10 @@ def verify_on_ethereum():
     except Exception as e:
         return jsonify({'message': 'Lỗi khi kiểm tra tài liệu trên Ethereum', 'error': str(e)}), 500
 
+# @app.route('/test_log', methods=['GET'])
+# def test_log():
+#     print("✅ Đã nhận request test_log")
+#     return "OK"
 
 
 if __name__ == '__main__':
