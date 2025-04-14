@@ -223,26 +223,61 @@ def get_nodes():
 
 
 # 3️⃣ API tạo block mới
-@app.route('/mine', methods=['POST'])
+@app.route('/mine_block', methods=['POST'])
 def mine_block():
-    data = request.get_json()
-    new_block = blockchain.mine_block(data)
-    node_registry.broadcast_new_block(new_block)  # Gửi block tới các node khác
-    return jsonify(new_block), 200
+    previous_block = blockchain.get_previous_block()
+    previous_proof = previous_block['proof']
+    proof = blockchain.proof_of_work(previous_proof)
+    previous_hash = blockchain.hash_block(previous_block)
+    block = blockchain.create_block(proof, previous_hash)
+    
+    # Broadcast block mới tới tất cả các node
+    for node in blockchain.nodes:
+        try:
+            requests.post(f'{node}/add_block', json=block)
+        except:
+            continue
+    
+    return jsonify(block), 200
+@app.route('/add_block', methods=['POST'])
+def add_block():
+    block = request.get_json()
+    
+    # Kiểm tra tính hợp lệ của block trước khi thêm
+    previous_block = blockchain.get_previous_block()
+    if block['previous_hash'] == blockchain.hash_block(previous_block):
+        blockchain.chain.append(block)
+        return jsonify({'message': 'Block đã được thêm vào chain'}), 200
+    else:
+        return jsonify({'message': 'Block không hợp lệ'}), 400
 
 @app.route('/register_node', methods=['POST'])
-def register():
-    node_url = request.json.get('node_url')
+def register_node():
+    json_data = request.get_json()
+    node_url = json_data.get('node_url')
+    
     if node_url is None:
         return jsonify({'message': 'Thiếu node_url'}), 400
-    
-    # Đăng ký node mới vào blockchain
+
+    # Thêm node vào mạng P2P
     blockchain.add_node(node_url)
+    node_registry.register_node(node_url)
+
+    # Tự động đồng bộ chain từ các node khác
+    replaced = blockchain.replace_chain()
     
-    # Tự động đồng bộ dữ liệu sau khi đăng ký node
-    blockchain.replace_chain()  # Tự động đồng bộ với node mới
-    
-    return jsonify({'message': f'Node {node_url} đã được đăng ký và đồng bộ dữ liệu'}), 200
+    if replaced:
+        response = {
+            'message': 'Node đã được đăng ký và chain đã được đồng bộ với chain dài nhất',
+            'new_chain': blockchain.chain
+        }
+    else:
+        response = {
+            'message': 'Node đã được đăng ký, chain hiện tại đã là bản mới nhất',
+            'current_chain': blockchain.chain
+        }
+
+    return jsonify(response), 201
 
 
 

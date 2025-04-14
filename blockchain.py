@@ -54,9 +54,13 @@ class Blockchain:
 
 
     def add_node(self, address):
-        self.nodes.add(address)
         parsed_url = urlparse(address)
-        self.nodes.add(parsed_url.netloc)
+        if parsed_url.netloc:
+            self.nodes.add(parsed_url.netloc)
+        elif parsed_url.path:
+            self.nodes.add(parsed_url.path)
+        else:
+            raise ValueError('URL không hợp lệ')
 
     def verify_document(self, document_hash):
         # Kiểm tra xem tài liệu có tồn tại trong các giao dịch đã lưu trong blockchain không
