@@ -7,7 +7,7 @@ import time  # Thêm timestamp cho block
 from blockchain import Blockchain  # Import class Blockchain từ file blockchain.py
 from web3 import Web3
 from eth_account import Account
-from p2p import register_node, broadcast_new_block
+from p2p import node_registry
 
 
 # Kết nối với Ganache
@@ -142,19 +142,24 @@ def store_on_ethereum():
 #         return jsonify({'message': 'Thiếu dữ liệu'}), 400
 #     index = blockchain.add_transaction(json_data['document_hash'])
 #     return jsonify({'message': f'Tài liệu sẽ được ghi vào Block {index}'}), 201
+@app.route('/get_nodes', methods=['GET'])
+def get_nodes():
+    print(blockchain.nodes)
+    return jsonify({'nodes': node_registry.get_peers()}), 200
+
 
 # 3️⃣ API tạo block mới
 @app.route('/mine', methods=['POST'])
 def mine_block():
     data = request.get_json()
     new_block = blockchain.mine_block(data)
-    broadcast_new_block(new_block)  # Gửi block tới các node khác
+    node_registry.broadcast_new_block(new_block)  # Gửi block tới các node khác
     return jsonify(new_block), 200
 
 @app.route('/register_node', methods=['POST'])
 def register():
     node_url = request.json.get('node_url')
-    register_node(node_url)
+    node_registry.register_node(node_url)
     return jsonify({'message': f'Node {node_url} registered'}), 200
 
 @app.route('/receive_block', methods=['POST'])
