@@ -58,12 +58,21 @@ def store_document():
     block_index = blockchain.add_transaction(document_hash)  # Thêm hash vào blockchain
 
     # Kiểm tra nếu số lượng giao dịch đạt một mức độ nào đó, bạn có thể tạo một block mới
-    if len(blockchain.transactions) >= 1:  # Ví dụ tạo block khi có ít nhất 1 giao dịch
+    # if len(blockchain.transactions) >= 1:  # Ví dụ tạo block khi có ít nhất 1 giao dịch
+    #     previous_block = blockchain.get_previous_block()
+    #     previous_proof = previous_block['proof']
+    #     proof = blockchain.proof_of_work(previous_proof)
+    #     previous_hash = blockchain.hash_block(previous_block)
+    #     blockchain.create_block(proof, previous_hash)
+    if len(blockchain.transactions) >= 1:
         previous_block = blockchain.get_previous_block()
-        previous_proof = previous_block['proof']
-        proof = blockchain.proof_of_work(previous_proof)
+        proof = blockchain.proof_of_work(previous_block['proof'])
         previous_hash = blockchain.hash_block(previous_block)
-        blockchain.create_block(proof, previous_hash)
+        new_block = blockchain.create_block(proof, previous_hash)
+        
+        # Broadcast block mới tới tất cả node
+        for node in blockchain.nodes:
+            requests.post(f'{node}/receive_block', json=new_block)
 
     return jsonify({
         'message': 'Tài liệu đã được lưu vào blockchain',
@@ -142,74 +151,8 @@ def store_on_ethereum():
 #         return jsonify({'message': 'Thiếu dữ liệu'}), 400
 #     index = blockchain.add_transaction(json_data['document_hash'])
 #     return jsonify({'message': f'Tài liệu sẽ được ghi vào Block {index}'}), 201
-@app.route('/get_nodes', methods=['GET'])
-def get_nodes():
-    print(blockchain.nodes)
-    return jsonify({'nodes': node_registry.get_peers()}), 200
 
 
-# 3️⃣ API tạo block mới
-@app.route('/mine', methods=['POST'])
-def mine_block():
-    data = request.get_json()
-    new_block = blockchain.mine_block(data)
-    node_registry.broadcast_new_block(new_block)  # Gửi block tới các node khác
-    return jsonify(new_block), 200
-
-@app.route('/register_node', methods=['POST'])
-def register():
-    node_url = request.json.get('node_url')
-    node_registry.register_node(node_url)
-    return jsonify({'message': f'Node {node_url} registered'}), 200
-
-@app.route('/receive_block', methods=['POST'])
-def receive_block():
-    block = request.get_json()
-    added = blockchain.add_block(block)  # logic kiểm tra block nằm trong blockchain.py
-    if added:
-        return jsonify({'message': 'Block added'}), 200
-    else:
-        return jsonify({'message': 'Invalid block'}), 400
-
-# 3️⃣ API xem toàn bộ blockchain
-@app.route('/get_chain', methods=['GET'])
-def get_chain():
-    return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
-
-# 4️⃣ API thêm node vào mạng P2P
-# @app.route('/connect_node', methods=['POST'])
-# def connect_node():
-#     json_data = request.get_json()
-#     nodes = json_data.get('nodes')
-#     if nodes is None:
-#         return jsonify({'message': 'Không có node nào để kết nối'}), 400
-#     for node in nodes:
-#         blockchain.add_node(node)
-#     return jsonify({'message': 'Kết nối thành công', 'nodes': list(blockchain.nodes)}), 201
-
-@app.route('/connect_node', methods=['POST'])
-def connect_node():
-    json_data = request.get_json()
-    nodes = json_data.get('nodes')
-    if nodes is None:
-        return "No nodes provided", 400
-    for node in nodes:
-        blockchain.add_node(node)
-    return jsonify({'message': 'All nodes connected successfully.', 'total_nodes': list(blockchain.nodes)}), 201
-
-
-# 5️⃣ API đồng bộ dữ liệu giữa các node
-@app.route('/sync_chain', methods=['GET'])
-def sync_chain():
-    longest_chain = blockchain.chain
-    for node in blockchain.nodes:
-        response = requests.get(f'http://{node}/get_chain')
-        if response.status_code == 200:
-            data = response.json()
-            if len(data['chain']) > len(longest_chain) and blockchain.is_chain_valid(data['chain']):
-                longest_chain = data['chain']
-    blockchain.chain = longest_chain
-    return jsonify({'message': 'Đã đồng bộ', 'chain': blockchain.chain}), 200
 
 # 6️⃣ API kiểm tra tài liệu trên blockchain nội bộ
 @app.route('/verify_document', methods=['POST'])
@@ -266,12 +209,101 @@ def verify_on_ethereum():
 
     except Exception as e:
         return jsonify({'message': 'Lỗi khi kiểm tra tài liệu trên Ethereum', 'error': str(e)}), 500
+    
 
-# @app.route('/test_log', methods=['GET'])
-# def test_log():
-#     print("✅ Đã nhận request test_log")
-#     return "OK"
+# 3️⃣ API xem toàn bộ blockchain
+@app.route('/get_chain', methods=['GET'])
+def get_chain():
+    return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
+
+@app.route('/get_nodes', methods=['GET'])
+def get_nodes():
+    print(blockchain.nodes)
+    return jsonify({'nodes': node_registry.get_peers()}), 200
+
+
+# 3️⃣ API tạo block mới
+@app.route('/mine', methods=['POST'])
+def mine_block():
+    data = request.get_json()
+    new_block = blockchain.mine_block(data)
+    node_registry.broadcast_new_block(new_block)  # Gửi block tới các node khác
+    return jsonify(new_block), 200
+
+@app.route('/register_node', methods=['POST'])
+def register():
+    node_url = request.json.get('node_url')
+    if node_url is None:
+        return jsonify({'message': 'Thiếu node_url'}), 400
+    
+    # Đăng ký node mới vào blockchain
+    blockchain.add_node(node_url)
+    
+    # Tự động đồng bộ dữ liệu sau khi đăng ký node
+    blockchain.replace_chain()  # Tự động đồng bộ với node mới
+    
+    return jsonify({'message': f'Node {node_url} đã được đăng ký và đồng bộ dữ liệu'}), 200
+
+
+
+# 4️⃣ API thêm node vào mạng P2P
+# @app.route('/connect_node', methods=['POST'])
+# def connect_node():
+#     json_data = request.get_json()
+#     nodes = json_data.get('nodes')
+#     if nodes is None:
+#         return jsonify({'message': 'Không có node nào để kết nối'}), 400
+#     for node in nodes:
+#         blockchain.add_node(node)
+#     return jsonify({'message': 'Kết nối thành công', 'nodes': list(blockchain.nodes)}), 201
+
+# @app.route('/connect_node', methods=['POST'])
+# def connect_node():
+#     json_data = request.get_json()
+#     nodes = json_data.get('nodes')
+#     if nodes is None:
+#         return "No nodes provided", 400
+#     for node in nodes:
+#         blockchain.add_node(node)
+#     return jsonify({'message': 'All nodes connected successfully.', 'total_nodes': list(blockchain.nodes)}), 201
+
+
+# 5️⃣ API đồng bộ dữ liệu giữa các node
+# @app.route('/sync_chain', methods=['GET'])
+# def sync_chain():
+#     longest_chain = blockchain.chain
+#     for node in blockchain.nodes:
+#         response = requests.get(f'http://{node}/get_chain')
+#         if response.status_code == 200:
+#             data = response.json()
+#             if len(data['chain']) > len(longest_chain) and blockchain.is_chain_valid(data['chain']):
+#                 longest_chain = data['chain']
+#     blockchain.chain = longest_chain
+#     return jsonify({'message': 'Đã đồng bộ', 'chain': blockchain.chain}), 200
+
+# @app.route('/sync_chain', methods=['GET'])
+# def sync_chain():
+#     longest_chain = blockchain.chain  # Chain hiện tại
+#     for node in blockchain.nodes:  # Duyệt qua tất cả node đã biết
+#         try:
+#             response = requests.get(f'{node}/get_chain')  # Lấy chain từ node khác
+#             if response.status_code == 200:
+#                 other_chain = response.json()['chain']
+#                 # Ưu tiên chain dài hơn và hợp lệ
+#                 if len(other_chain) > len(longest_chain) and blockchain.is_chain_valid(other_chain):
+#                     longest_chain = other_chain
+#         except requests.exceptions.RequestException:
+#             continue  # Bỏ qua node không phản hồi
+
+#     # Cập nhật chain nếu tìm thấy chain dài hơn
+#     if longest_chain != blockchain.chain:
+#         blockchain.chain = longest_chain
+#         return jsonify({'message': 'Đã đồng bộ chain', 'new_chain': longest_chain}), 200
+#     else:
+#         return jsonify({'message': 'Chain đã là bản mới nhất', 'chain': longest_chain}), 200
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000  # Lấy cổng từ tham số dòng lệnh
+    app.run(host='0.0.0.0', port=port)

@@ -46,8 +46,12 @@ class Blockchain:
         for block in chain[1:]:
             if block['previous_hash'] != self.hash_block(previous_block):
                 return False
+            if not self.is_proof_valid(previous_block['proof'], block['proof']):
+                return False
             previous_block = block
         return True
+
+
 
     def add_node(self, address):
         self.nodes.add(address)
