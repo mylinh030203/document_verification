@@ -3,6 +3,7 @@ import json
 import time
 from flask import Flask, jsonify, request
 import requests
+from urllib.parse import urlparse
 
 class Blockchain:
     def __init__(self):
@@ -50,6 +51,8 @@ class Blockchain:
 
     def add_node(self, address):
         self.nodes.add(address)
+        parsed_url = urlparse(address)
+        self.nodes.add(parsed_url.netloc)
 
     def verify_document(self, document_hash):
         # Kiểm tra xem tài liệu có tồn tại trong các giao dịch đã lưu trong blockchain không
@@ -58,3 +61,25 @@ class Blockchain:
                 if transaction['document_hash'] == document_hash:
                     return True  # Tài liệu không bị chỉnh sửa
         return False  # Tài liệu không tồn tại hoặc đã bị chỉnh sửa
+    
+# Đồng bộ chuỗi từ các node khác
+def replace_chain(self):
+    longest_chain = self.chain
+    max_length = len(self.chain)
+
+    for node in self.nodes:
+        try:
+            response = requests.get(f'{node}/chain')
+            if response.status_code == 200:
+                data = response.json()
+                length = len(data['chain'])  # Lấy chain từ response
+                chain = data['chain']
+                if length > max_length and self.is_chain_valid(chain):
+                    max_length = length
+                    longest_chain = chain
+        except:
+            continue
+
+    self.chain = longest_chain
+    return True
+

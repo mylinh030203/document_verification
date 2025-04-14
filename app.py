@@ -7,12 +7,39 @@ import time  # Thêm timestamp cho block
 from blockchain import Blockchain  # Import class Blockchain từ file blockchain.py
 from web3 import Web3
 from eth_account import Account
+from p2p import register_node, broadcast_new_block
+import requests
+import sys
+
+# Lấy địa chỉ IP từ tham số dòng lệnh
+if len(sys.argv) < 2:
+    print("Vui lòng cung cấp địa chỉ IP của Máy tính 1.")
+    sys.exit(1)
+
+ip_may_tinh_1 = sys.argv[1]
+
+# Địa chỉ URL của API
+url = f'http://{ip_may_tinh_1}:5000/connect_node'
+
+# Dữ liệu gửi đi
+data = {
+    "nodes": [f'http://{ip_may_tinh_1}:5000']
+}
+
+# Gửi yêu cầu POST đến Máy tính 1 để kết nối
+response = requests.post(url, json=data)
+
+# Kiểm tra phản hồi
+if response.status_code == 200:
+    print("Kết nối thành công!")
+else:
+    print(f"Lỗi khi kết nối: {response.status_code}")
 
 # Kết nối với Ganache
 web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
 
 # Địa chỉ contract của bạn sau khi deploy
-contract_address = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+contract_address = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 
 # ABI của smart contract (copy từ file JSON sau khi compile)
 contract_abi = [{"anonymous": False , "inputs": [{"indexed": False , "internalType": "string", "name": "documentHash", "type": "string"}], "name": "DocumentStored", "type": "event"}, {"inputs": [{"internalType": "string", "name": "documentHash", "type": "string"}], "name": "storeDocument", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "string", "name": "documentHash", "type": "string"}], "name": "verifyDocument", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"}]
@@ -141,14 +168,28 @@ def store_on_ethereum():
 #     index = blockchain.add_transaction(json_data['document_hash'])
 #     return jsonify({'message': f'Tài liệu sẽ được ghi vào Block {index}'}), 201
 
-# 2️⃣ API tạo block mới
-@app.route('/mine_block', methods=['GET'])
+# 3️⃣ API tạo block mới
+@app.route('/mine', methods=['POST'])
 def mine_block():
-    previous_block = blockchain.get_previous_block()
-    proof = blockchain.proof_of_work(previous_block['proof'])
-    previous_hash = blockchain.hash_block(previous_block)
-    block = blockchain.create_block(proof, previous_hash)
-    return jsonify(block), 200
+    data = request.get_json()
+    new_block = blockchain.mine_block(data)
+    broadcast_new_block(new_block)  # Gửi block tới các node khác
+    return jsonify(new_block), 200
+
+@app.route('/register_node', methods=['POST'])
+def register():
+    node_url = request.json.get('node_url')
+    register_node(node_url)
+    return jsonify({'message': f'Node {node_url} registered'}), 200
+
+@app.route('/receive_block', methods=['POST'])
+def receive_block():
+    block = request.get_json()
+    added = blockchain.add_block(block)  # logic kiểm tra block nằm trong blockchain.py
+    if added:
+        return jsonify({'message': 'Block added'}), 200
+    else:
+        return jsonify({'message': 'Invalid block'}), 400
 
 # 3️⃣ API xem toàn bộ blockchain
 @app.route('/get_chain', methods=['GET'])
@@ -156,15 +197,26 @@ def get_chain():
     return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
 
 # 4️⃣ API thêm node vào mạng P2P
+# @app.route('/connect_node', methods=['POST'])
+# def connect_node():
+#     json_data = request.get_json()
+#     nodes = json_data.get('nodes')
+#     if nodes is None:
+#         return jsonify({'message': 'Không có node nào để kết nối'}), 400
+#     for node in nodes:
+#         blockchain.add_node(node)
+#     return jsonify({'message': 'Kết nối thành công', 'nodes': list(blockchain.nodes)}), 201
+
 @app.route('/connect_node', methods=['POST'])
 def connect_node():
     json_data = request.get_json()
     nodes = json_data.get('nodes')
     if nodes is None:
-        return jsonify({'message': 'Không có node nào để kết nối'}), 400
+        return "No nodes provided", 400
     for node in nodes:
         blockchain.add_node(node)
-    return jsonify({'message': 'Kết nối thành công', 'nodes': list(blockchain.nodes)}), 201
+    return jsonify({'message': 'All nodes connected successfully.', 'total_nodes': list(blockchain.nodes)}), 201
+
 
 # 5️⃣ API đồng bộ dữ liệu giữa các node
 @app.route('/sync_chain', methods=['GET'])
