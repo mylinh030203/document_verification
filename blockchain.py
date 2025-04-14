@@ -67,23 +67,26 @@ class Blockchain:
         return False  # Tài liệu không tồn tại hoặc đã bị chỉnh sửa
     
 # Đồng bộ chuỗi từ các node khác
-def replace_chain(self):
-    longest_chain = self.chain
-    max_length = len(self.chain)
+    def replace_chain(self):
+        longest_chain = None
+        max_length = len(self.chain)
 
-    for node in self.nodes:
-        try:
-            response = requests.get(f'{node}/chain')
-            if response.status_code == 200:
-                data = response.json()
-                length = len(data['chain'])  # Lấy chain từ response
-                chain = data['chain']
-                if length > max_length and self.is_chain_valid(chain):
-                    max_length = length
-                    longest_chain = chain
-        except:
-            continue
+        for node in self.nodes:
+            try:
+                response = requests.get(f'{node}/get_chain')
+                if response.status_code == 200:
+                    data = response.json()
+                    length = data['length']
+                    chain = data['chain']
 
-    self.chain = longest_chain
-    return True
+                    if length > max_length and self.is_chain_valid(chain):
+                        max_length = length
+                        longest_chain = chain
+            except:
+                continue
 
+        if longest_chain:
+            self.chain = longest_chain
+            return True
+
+        return False
