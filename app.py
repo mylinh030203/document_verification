@@ -8,32 +8,7 @@ from blockchain import Blockchain  # Import class Blockchain từ file blockchai
 from web3 import Web3
 from eth_account import Account
 from p2p import register_node, broadcast_new_block
-import requests
-import sys
 
-# Lấy địa chỉ IP từ tham số dòng lệnh
-if len(sys.argv) < 2:
-    print("Vui lòng cung cấp địa chỉ IP của Máy tính 1.")
-    sys.exit(1)
-
-ip_may_tinh_1 = sys.argv[1]
-
-# Địa chỉ URL của API
-url = f'http://{ip_may_tinh_1}:5000/connect_node'
-
-# Dữ liệu gửi đi
-data = {
-    "nodes": [f'http://{ip_may_tinh_1}:5000']
-}
-
-# Gửi yêu cầu POST đến Máy tính 1 để kết nối
-response = requests.post(url, json=data)
-
-# Kiểm tra phản hồi
-if response.status_code == 200:
-    print("Kết nối thành công!")
-else:
-    print(f"Lỗi khi kết nối: {response.status_code}")
 
 # Kết nối với Ganache
 web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
