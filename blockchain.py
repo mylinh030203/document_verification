@@ -11,6 +11,23 @@ class Blockchain:
         self.transactions = []
         self.nodes = set()
         self.create_block(proof=1, previous_hash='0')  # Tạo block genesis
+        self.sync_on_init()  # Kiem tra va thay doi chain (15/4)
+
+    def sync_on_init(self):     
+        if len(self.nodes) > 0:
+            self.replace_chain()
+
+    def sync_on_join(self, node_url):
+        try:
+            response = requests.get(f'{node_url}/get_chain', timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if data['length'] > len(self.chain) and self.is_chain_valid(data['chain']):
+                    self.chain = data['chain']
+                    return True
+        except:
+            pass
+        return False
 
     def create_block(self, proof, previous_hash):
         block = {
@@ -80,55 +97,21 @@ class Blockchain:
     
 # Đồng bộ chuỗi từ các node khác
     def replace_chain(self):
-        print("Bắt đầu hợp nhất chuỗi...")
-        # Thu thập tất cả giao dịch từ chuỗi hiện tại
-        all_transactions = []
-        for block in self.chain:
-            all_transactions.extend(block['transactions'])
-
-        # Thu thập giao dịch từ các node khác
+        longest_chain = None
+        max_length = len(self.chain)
+        
         for node in self.nodes:
-            print(f"Kiểm tra node: {node}")
             try:
                 response = requests.get(f'{node}/get_chain', timeout=10)
                 if response.status_code == 200:
                     data = response.json()
-                    chain = data['chain']
-                    for block in chain:
-                        for tx in block['transactions']:
-                            if tx not in all_transactions:  # Tránh trùng lặp
-                                all_transactions.append(tx)
-                    print(f"Thu thập {len(chain)} block từ node {node}")
-                else:
-                    print(f"Yêu cầu tới {node} thất bại với mã: {response.status_code}")
-            except Exception as e:
-                print(f"Lỗi khi kết nối tới {node}: {str(e)}")
-
-        if not all_transactions:
-            print("Không có giao dịch mới để hợp nhất")
-            return False
-
-        # Xây dựng chuỗi mới
-        new_chain = []
-        self.chain = []  # Xóa chuỗi cũ
-        self.create_block(proof=1, previous_hash='0')  # Tạo lại block genesis
-        new_chain.append(self.chain[0])
-
-        # Thêm tất cả giao dịch vào các block mới
-        transactions_per_block = 1  # Số giao dịch mỗi block
-        for i in range(0, len(all_transactions), transactions_per_block):
-            self.transactions = all_transactions[i:i + transactions_per_block]
-            previous_block = self.get_previous_block()
-            proof = self.proof_of_work(previous_block['proof'])
-            previous_hash = self.hash_block(previous_block)
-            new_block = self.create_block(proof, previous_hash)
-            new_chain.append(new_block)
-
-        # Xác thực chuỗi mới
-        if self.is_chain_valid(new_chain):
-            print("Chuỗi hợp nhất hợp lệ, thay thế chuỗi hiện tại")
-            self.chain = new_chain
+                    if data['length'] > max_length and self.is_chain_valid(data['chain']):
+                        max_length = data['length']
+                        longest_chain = data['chain']
+            except:
+                continue
+                
+        if longest_chain:
+            self.chain = longest_chain
             return True
-        else:
-            print("Chuỗi hợp nhất không hợp lệ, giữ chuỗi hiện tại")
-            return False
+        return False

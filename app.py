@@ -7,9 +7,24 @@ import time  # Thêm timestamp cho block
 from blockchain import Blockchain  # Import class Blockchain từ file blockchain.py
 from web3 import Web3
 from eth_account import Account
-from p2p import node_registry
+from p2p import NodeRegistry
+import sys
+import socket
 
 
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('8.8.8.8', 1))
+        ip = s.getsockname()[0]
+    except:
+        ip = '127.0.0.1'
+    finally:
+        s.close()
+    return ip
+
+bootstrap_url = "http://192.168.1.11:5000"
+node_registry = NodeRegistry(bootstrap_url=bootstrap_url)
 # Kết nối với Ganache
 web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
 
@@ -144,6 +159,14 @@ def store_on_ethereum():
 
     except Exception as e:
         return jsonify({'message': 'Lỗi khi lưu vào Ethereum', 'error': str(e)}), 500
+    
+@app.route('/add_transaction', methods=['POST'])
+def add_transaction():
+    json_data = request.get_json()
+    if not json_data or 'document_hash' not in json_data:
+        return jsonify({'message': 'Thiếu document_hash'}), 400
+    index = blockchain.add_transaction(json_data['document_hash'])
+    return jsonify({'message': f'Giao dịch sẽ được ghi vào block {index}'}), 201
 # @app.route('/add_transaction', methods=['POST'])
 # def add_transaction():
 #     json_data = request.get_json()
@@ -303,27 +326,49 @@ def register_node():
     if not node_url.startswith('http://') and not node_url.startswith('https://'):
         node_url = f'http://{node_url}'
     
+    node_url = node_registry.register_node(node_url)
+    blockchain.add_node(node_url)
+    
+    # Broadcast node mới tới các node khác
+    for peer in blockchain.nodes:
+        if peer != node_url:
+            try:
+                requests.post(f'{peer}/add_node', json={'node_url': node_url}, timeout=10)
+            except:
+                pass
+    
+    # Node mới đồng bộ chuỗi từ các node cũ
+    for peer in blockchain.nodes:
+        if peer != node_url:
+            if blockchain.sync_on_join(peer):
+                break
+    
+    # Node cũ đồng bộ từ node mới
     try:
-        blockchain.add_node(node_url)
-        node_registry.register_node(node_url)
-        print(f"Đã đăng ký node: {node_url}")
+        response = requests.get(f'{node_url}/get_chain', timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data['length'] > len(blockchain.chain) and blockchain.is_chain_valid(data['chain']):
+                blockchain.chain = data['chain']
+    except:
+        pass
+    
+    return jsonify({
+        'message': 'Node đã được đăng ký và đồng bộ',
+        'chain': blockchain.chain
+    }), 201
 
-        replaced = blockchain.replace_chain()
-        
-        if replaced:
-            response = {
-                'message': 'Node đã được đăng ký và chuỗi đã được hợp nhất',
-                'new_chain': blockchain.chain
-            }
-        else:
-            response = {
-                'message': 'Node đã được đăng ký, không có block mới để hợp nhất',
-                'current_chain': blockchain.chain
-            }
-        return jsonify(response), 201
-    except Exception as e:
-        print(f"Lỗi khi đăng ký node {node_url}: {str(e)}")
-        return jsonify({'message': 'Lỗi khi đăng ký node', 'error': str(e)}), 500
+@app.route('/add_node', methods=['POST'])
+def add_node():
+    json_data = request.get_json()
+    node_url = json_data.get('node_url')
+    
+    if not node_url:
+        return jsonify({'message': 'Thiếu node_url'}), 400
+    
+    node_url = node_registry.register_node(node_url)
+    blockchain.add_node(node_url)
+    return jsonify({'message': f'Node {node_url} đã được thêm'}), 201
 
 
 @app.route('/sync_chain', methods=['POST'])
@@ -402,6 +447,16 @@ def sync_chain():
 
 
 if __name__ == '__main__':
-    import sys
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000  # Lấy cổng từ tham số dòng lệnh
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    local_ip = get_local_ip()
+    current_node_url = f'http://{local_ip}:{port}'
+    
+    # Đăng ký node hiện tại
+    node_registry.register_node(current_node_url)
+    if bootstrap_url != current_node_url:
+        try:
+            requests.post(f'{bootstrap_url}/register_node', json={'node_url': current_node_url}, timeout=10)
+            print(f"Đã đăng ký node {current_node_url} với bootstrap")
+        except Exception as e:
+            print(f"Lỗi khi đăng ký với bootstrap: {str(e)}")
     app.run(host='0.0.0.0', port=port)
