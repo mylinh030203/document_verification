@@ -125,6 +125,9 @@ def store_document():
     blockchain.nodes = set(node_registry.get_peers())
     print(f"Nodes trước khi broadcast: {blockchain.nodes}")
     
+    # Đồng bộ chuỗi trước khi tạo block
+    blockchain.replace_chain()
+    
     # Broadcast giao dịch
     current_node = f'http://{get_local_ip()}:{request.environ["SERVER_PORT"]}'
     for node in blockchain.nodes:
@@ -299,12 +302,8 @@ def verify_on_ethereum():
 # 3️⃣ API xem toàn bộ blockchain
 @app.route('/get_chain', methods=['GET'])
 def get_chain():
+    blockchain.replace_chain()
     return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
-# @app.route('/get_chain', methods=['GET'])
-# def get_chain():
-#     # Thử đồng bộ chuỗi từ các node khác trước khi trả về
-#     # blockchain.replace_chain()
-#     return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
 
 @app.route('/get_nodes', methods=['GET'])
 def get_nodes():
