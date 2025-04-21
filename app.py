@@ -10,15 +10,28 @@ from eth_account import Account
 from p2p import NodeRegistry
 import sys
 import socket
-
+from utils import get_local_ip
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
+        # Kết nối tới một địa chỉ công cộng để lấy IP cục bộ
         s.connect(('8.8.8.8', 1))
         ip = s.getsockname()[0]
-    except:
-        ip = '127.0.0.1'
+    except Exception:
+        # Nếu thất bại, lấy IP từ giao diện mạng
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+            if ip.startswith('127.'):
+                # Tránh trả về localhost
+                interfaces = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+                for interface in interfaces:
+                    ip_addr = interface[4][0]
+                    if not ip_addr.startswith('127.'):
+                        ip = ip_addr
+                        break
+        except Exception:
+            ip = '127.0.0.1'
     finally:
         s.close()
     return ip
@@ -284,14 +297,14 @@ def verify_on_ethereum():
     
 
 # 3️⃣ API xem toàn bộ blockchain
-# @app.route('/get_chain', methods=['GET'])
-# def get_chain():
-#     return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
 @app.route('/get_chain', methods=['GET'])
 def get_chain():
-    # Thử đồng bộ chuỗi từ các node khác trước khi trả về
-    blockchain.replace_chain()
     return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
+# @app.route('/get_chain', methods=['GET'])
+# def get_chain():
+#     # Thử đồng bộ chuỗi từ các node khác trước khi trả về
+#     # blockchain.replace_chain()
+#     return jsonify({'chain': blockchain.chain, 'length': len(blockchain.chain)}), 200
 
 @app.route('/get_nodes', methods=['GET'])
 def get_nodes():
@@ -313,8 +326,11 @@ def register_node():
     node_url = node_registry.register_node(node_url)
     blockchain.add_node(node_url)
     
-    # Broadcast node mới
+    # Cập nhật blockchain.nodes
     blockchain.nodes = set(node_registry.get_peers())
+    print(f"Nodes sau khi đăng ký: {blockchain.nodes}")
+    
+    # Broadcast node mới
     for peer in blockchain.nodes:
         if peer != node_url:
             try:
@@ -544,12 +560,29 @@ def sync_chain():
 #         return jsonify({'message': 'Chain đã là bản mới nhất', 'chain': longest_chain}), 200
 
 
+# if __name__ == '__main__':
+#     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+#     local_ip = get_local_ip()
+#     current_node_url = f'http://{local_ip}:{port}'
+    
+#     # Đăng ký node hiện tại
+#     node_registry.register_node(current_node_url)
+#     if bootstrap_url != current_node_url:
+#         try:
+#             requests.post(f'{bootstrap_url}/register_node', json={'node_url': current_node_url}, timeout=10)
+#             print(f"Đã đăng ký node {current_node_url} với bootstrap")
+#         except Exception as e:
+#             print(f"Lỗi khi đăng ký với bootstrap: {str(e)}")
+#     app.run(host='0.0.0.0', port=port)
+
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
     local_ip = get_local_ip()
     current_node_url = f'http://{local_ip}:{port}'
     
-    # Đăng ký node hiện tại
+    # Khởi tạo blockchain với port
+    blockchain = Blockchain(port=port)
+    
     node_registry.register_node(current_node_url)
     if bootstrap_url != current_node_url:
         try:

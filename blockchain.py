@@ -4,14 +4,16 @@ import time
 from flask import Flask, jsonify, request
 import requests
 from urllib.parse import urlparse
+from utils import get_local_ip
 
 class Blockchain:
-    def __init__(self):
+    def __init__(self, port=5000):
         self.chain = []
         self.transactions = []
         self.nodes = set()
-        self.create_block(proof=1, previous_hash='0')  # Tạo block genesis
-        self.sync_on_init()  # Kiem tra va thay doi chain (15/4)
+        self.port = port  # Lưu port
+        self.create_block(proof=1, previous_hash='0')
+        self.sync_on_init()
 
     def sync_on_init(self):     
         if len(self.nodes) > 0:
@@ -116,32 +118,37 @@ class Blockchain:
 #             return True
 #         return False
 
-
-def replace_chain(self):
-    longest_chain = None
-    max_length = len(self.chain)
-    
-    print(f"Bắt đầu đồng bộ chuỗi, nodes: {self.nodes}")
-    for node in self.nodes:
-        try:
-            print(f"Đang gửi GET /get_chain tới {node}")
-            response = requests.get(f'{node}/get_chain', timeout=30)
-            if response.status_code == 200:
-                data = response.json()
-                print(f"Chuỗi từ {node}: length={data['length']}, chain={data['chain']}")
-                if data['length'] > max_length and self.is_chain_valid(data['chain']):
-                    max_length = data['length']
-                    longest_chain = data['chain']
-                    print(f"Tìm thấy chuỗi dài hơn từ {node}: length={max_length}")
-            else:
-                print(f"Phản hồi không thành công từ {node}: {response.status_code}")
-        except Exception as e:
-            print(f"Lỗi khi lấy chuỗi từ {node}: {str(e)}")
-            continue
-            
-    if longest_chain:
-        print(f"Thay thế chuỗi bằng chuỗi dài hơn: length={max_length}")
-        self.chain = longest_chain
-        return True
-    print("Không tìm thấy chuỗi dài hơn")
-    return False
+    def replace_chain(self):
+        longest_chain = None
+        max_length = len(self.chain)
+        
+        # Lấy URL của node hiện tại
+        current_node = f'http://{get_local_ip()}:{self.port}'
+        print(f"Bắt đầu đồng bộ chuỗi, nodes: {self.nodes}, current_node: {current_node}")
+        
+        for node in self.nodes:
+            if node == current_node:
+                print(f"Bỏ qua node hiện tại: {node}")
+                continue
+            try:
+                print(f"Đang gửi GET /get_chain tới {node}")
+                response = requests.get(f'{node}/get_chain', timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"Chuỗi từ {node}: length={data['length']}")
+                    if data['length'] > max_length and self.is_chain_valid(data['chain']):
+                        max_length = data['length']
+                        longest_chain = data['chain']
+                        print(f"Tìm thấy chuỗi dài hơn từ {node}: length={max_length}")
+                else:
+                    print(f"Phản hồi không thành công từ {node}: {response.status_code}")
+            except Exception as e:
+                print(f"Lỗi khi lấy chuỗi từ {node}: {str(e)}")
+                continue
+                
+        if longest_chain:
+            print(f"Thay thế chuỗi bằng chuỗi dài hơn: length={max_length}")
+            self.chain = longest_chain
+            return True
+        print("Không tìm thấy chuỗi dài hơn")
+        return False
