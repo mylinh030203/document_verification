@@ -1,4 +1,4 @@
-# p2p.py
+
 import requests
 
 class NodeRegistry:

@@ -95,23 +95,53 @@ class Blockchain:
                     return True  # Tài liệu không bị chỉnh sửa
         return False  # Tài liệu không tồn tại hoặc đã bị chỉnh sửa
     
-# Đồng bộ chuỗi từ các node khác
-    def replace_chain(self):
-        longest_chain = None
-        max_length = len(self.chain)
+# # Đồng bộ chuỗi từ các node khác
+#     def replace_chain(self):
+#         longest_chain = None
+#         max_length = len(self.chain)
         
-        for node in self.nodes:
-            try:
-                response = requests.get(f'{node}/get_chain', timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data['length'] > max_length and self.is_chain_valid(data['chain']):
-                        max_length = data['length']
-                        longest_chain = data['chain']
-            except:
-                continue
+#         for node in self.nodes:
+#             try:
+#                 response = requests.get(f'{node}/get_chain', timeout=20)
+#                 if response.status_code == 200:
+#                     data = response.json()
+#                     if data['length'] > max_length and self.is_chain_valid(data['chain']):
+#                         max_length = data['length']
+#                         longest_chain = data['chain']
+#             except:
+#                 continue
                 
-        if longest_chain:
-            self.chain = longest_chain
-            return True
-        return False
+#         if longest_chain:
+#             self.chain = longest_chain
+#             return True
+#         return False
+
+
+def replace_chain(self):
+    longest_chain = None
+    max_length = len(self.chain)
+    
+    print(f"Bắt đầu đồng bộ chuỗi, nodes: {self.nodes}")
+    for node in self.nodes:
+        try:
+            print(f"Đang gửi GET /get_chain tới {node}")
+            response = requests.get(f'{node}/get_chain', timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                print(f"Chuỗi từ {node}: length={data['length']}, chain={data['chain']}")
+                if data['length'] > max_length and self.is_chain_valid(data['chain']):
+                    max_length = data['length']
+                    longest_chain = data['chain']
+                    print(f"Tìm thấy chuỗi dài hơn từ {node}: length={max_length}")
+            else:
+                print(f"Phản hồi không thành công từ {node}: {response.status_code}")
+        except Exception as e:
+            print(f"Lỗi khi lấy chuỗi từ {node}: {str(e)}")
+            continue
+            
+    if longest_chain:
+        print(f"Thay thế chuỗi bằng chuỗi dài hơn: length={max_length}")
+        self.chain = longest_chain
+        return True
+    print("Không tìm thấy chuỗi dài hơn")
+    return False

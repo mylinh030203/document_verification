@@ -23,7 +23,8 @@ def get_local_ip():
         s.close()
     return ip
 
-bootstrap_url = "http://192.168.1.11:5000"
+# bootstrap_url = "http://192.168.1.11:5000"
+bootstrap_url = "http://10.70.28.150:5000"
 node_registry = NodeRegistry(bootstrap_url=bootstrap_url)
 # Kết nối với Ganache
 web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
@@ -53,6 +54,47 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # # 1️⃣ API lưu document hash vào blockchain nội bộ
 # lưu tài liệu quan trọng vào blockchain nội bộ (chỉ có các nhân viên trong công ty mới check được)
+# @app.route('/store_document', methods=['POST'])
+# def store_document():
+#     if 'file' not in request.files:
+#         return jsonify({'message': 'Không có file trong request'}), 400
+
+#     file = request.files['file']
+#     if file.filename == '':
+#         return jsonify({'message': 'Không có file được chọn'}), 400
+
+#     file_content = file.read()
+#     document_hash = hashlib.sha256(file_content).hexdigest()
+#     block_index = blockchain.add_transaction(document_hash)
+    
+#     # Broadcast giao dịch tới tất cả node
+#     for node in blockchain.nodes:
+#         try:
+#             requests.post(f'{node}/add_transaction', json={'document_hash': document_hash})
+#             print(f"Broadcast giao dịch tới {node}")
+#         except Exception as e:
+#             print(f"Lỗi khi broadcast giao dịch tới {node}: {str(e)}")
+
+#     # Tạo block nếu đủ giao dịch
+#     if len(blockchain.transactions) >= 1:
+#         previous_block = blockchain.get_previous_block()
+#         proof = blockchain.proof_of_work(previous_block['proof'])
+#         previous_hash = blockchain.hash_block(previous_block)
+#         new_block = blockchain.create_block(proof, previous_hash)
+        
+#         # Broadcast block mới
+#         for node in blockchain.nodes:
+#             try:
+#                 requests.post(f'{node}/add_block', json=new_block)
+#                 print(f"Broadcast block tới {node}")
+#             except Exception as e:
+#                 print(f"Lỗi khi broadcast block tới {node}: {str(e)}")
+
+#     return jsonify({
+#         'message': 'Tài liệu đã được lưu vào blockchain',
+#         'file_hash': document_hash,
+#         'block_index': block_index
+#     }), 201
 @app.route('/store_document', methods=['POST'])
 def store_document():
     if 'file' not in request.files:
@@ -66,13 +108,19 @@ def store_document():
     document_hash = hashlib.sha256(file_content).hexdigest()
     block_index = blockchain.add_transaction(document_hash)
     
-    # Broadcast giao dịch tới tất cả node
+    # Cập nhật blockchain.nodes
+    blockchain.nodes = set(node_registry.get_peers())
+    print(f"Nodes trước khi broadcast: {blockchain.nodes}")
+    
+    # Broadcast giao dịch
+    current_node = f'http://{get_local_ip()}:{request.environ["SERVER_PORT"]}'
     for node in blockchain.nodes:
-        try:
-            requests.post(f'{node}/add_transaction', json={'document_hash': document_hash})
-            print(f"Broadcast giao dịch tới {node}")
-        except Exception as e:
-            print(f"Lỗi khi broadcast giao dịch tới {node}: {str(e)}")
+        if node != current_node:
+            try:
+                response = requests.post(f'{node}/add_transaction', json={'document_hash': document_hash}, timeout=30)
+                print(f"Broadcast giao dịch tới {node}: {response.status_code}, response={response.text}")
+            except Exception as e:
+                print(f"Lỗi khi broadcast giao dịch tới {node}: {str(e)}")
 
     # Tạo block nếu đủ giao dịch
     if len(blockchain.transactions) >= 1:
@@ -83,11 +131,12 @@ def store_document():
         
         # Broadcast block mới
         for node in blockchain.nodes:
-            try:
-                requests.post(f'{node}/add_block', json=new_block)
-                print(f"Broadcast block tới {node}")
-            except Exception as e:
-                print(f"Lỗi khi broadcast block tới {node}: {str(e)}")
+            if node != current_node:
+                try:
+                    response = requests.post(f'{node}/add_block', json=new_block, timeout=30)
+                    print(f"Broadcast block tới {node}: {response.status_code}, response={response.text}")
+                except Exception as e:
+                    print(f"Lỗi khi broadcast block tới {node}: {str(e)}")
 
     return jsonify({
         'message': 'Tài liệu đã được lưu vào blockchain',
@@ -246,8 +295,57 @@ def get_chain():
 
 @app.route('/get_nodes', methods=['GET'])
 def get_nodes():
-    print(blockchain.nodes)
+    blockchain.nodes = set(node_registry.get_peers())
+    print(f"blockchain.nodes: {blockchain.nodes}")
     return jsonify({'nodes': node_registry.get_peers()}), 200
+
+@app.route('/register_node', methods=['POST'])
+def register_node():
+    json_data = request.get_json()
+    node_url = json_data.get('node_url')
+    
+    if not node_url:
+        return jsonify({'message': 'Thiếu node_url'}), 400
+
+    if not node_url.startswith('http://') and not node_url.startswith('https://'):
+        node_url = f'http://{node_url}'
+    
+    node_url = node_registry.register_node(node_url)
+    blockchain.add_node(node_url)
+    
+    # Broadcast node mới
+    blockchain.nodes = set(node_registry.get_peers())
+    for peer in blockchain.nodes:
+        if peer != node_url:
+            try:
+                response = requests.post(f'{peer}/add_node', json={'node_url': node_url}, timeout=30)
+                print(f"Broadcast node mới tới {peer}: {response.status_code}")
+            except Exception as e:
+                print(f"Lỗi khi broadcast node tới {peer}: {str(e)}")
+    
+    # Node mới đồng bộ chuỗi
+    for peer in blockchain.nodes:
+        if peer != node_url:
+            if blockchain.sync_on_join(peer):
+                break
+    
+    # Node cũ đồng bộ từ node mới
+    try:
+        response = requests.get(f'{node_url}/get_chain', timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            if data['length'] > len(blockchain.chain) and blockchain.is_chain_valid(data['chain']):
+                blockchain.chain = data['chain']
+                print(f"Đồng bộ chuỗi từ {node_url}: length={data['length']}")
+        else:
+            print(f"Không lấy được chuỗi từ {node_url}: {response.status_code}")
+    except Exception as e:
+        print(f"Lỗi khi đồng bộ từ {node_url}: {str(e)}")
+    
+    return jsonify({
+        'message': 'Node đã được đăng ký và đồng bộ',
+        'chain': blockchain.chain
+    }), 201
 
 
 # 3️⃣ API tạo block mới
@@ -315,48 +413,48 @@ def add_block():
 #         }
 
 #     return jsonify(response), 201
-@app.route('/register_node', methods=['POST'])
-def register_node():
-    json_data = request.get_json()
-    node_url = json_data.get('node_url')
+# @app.route('/register_node', methods=['POST'])
+# def register_node():
+#     json_data = request.get_json()
+#     node_url = json_data.get('node_url')
     
-    if not node_url:
-        return jsonify({'message': 'Thiếu node_url'}), 400
+#     if not node_url:
+#         return jsonify({'message': 'Thiếu node_url'}), 400
 
-    if not node_url.startswith('http://') and not node_url.startswith('https://'):
-        node_url = f'http://{node_url}'
+#     if not node_url.startswith('http://') and not node_url.startswith('https://'):
+#         node_url = f'http://{node_url}'
     
-    node_url = node_registry.register_node(node_url)
-    blockchain.add_node(node_url)
+#     node_url = node_registry.register_node(node_url)
+#     blockchain.add_node(node_url)
     
-    # Broadcast node mới tới các node khác
-    for peer in blockchain.nodes:
-        if peer != node_url:
-            try:
-                requests.post(f'{peer}/add_node', json={'node_url': node_url}, timeout=10)
-            except:
-                pass
+#     # Broadcast node mới tới các node khác
+#     for peer in blockchain.nodes:
+#         if peer != node_url:
+#             try:
+#                 requests.post(f'{peer}/add_node', json={'node_url': node_url}, timeout=10)
+#             except:
+#                 pass
     
-    # Node mới đồng bộ chuỗi từ các node cũ
-    for peer in blockchain.nodes:
-        if peer != node_url:
-            if blockchain.sync_on_join(peer):
-                break
+#     # Node mới đồng bộ chuỗi từ các node cũ
+#     for peer in blockchain.nodes:
+#         if peer != node_url:
+#             if blockchain.sync_on_join(peer):
+#                 break
     
-    # Node cũ đồng bộ từ node mới
-    try:
-        response = requests.get(f'{node_url}/get_chain', timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if data['length'] > len(blockchain.chain) and blockchain.is_chain_valid(data['chain']):
-                blockchain.chain = data['chain']
-    except:
-        pass
+#     # Node cũ đồng bộ từ node mới
+#     try:
+#         response = requests.get(f'{node_url}/get_chain', timeout=10)
+#         if response.status_code == 200:
+#             data = response.json()
+#             if data['length'] > len(blockchain.chain) and blockchain.is_chain_valid(data['chain']):
+#                 blockchain.chain = data['chain']
+#     except:
+#         pass
     
-    return jsonify({
-        'message': 'Node đã được đăng ký và đồng bộ',
-        'chain': blockchain.chain
-    }), 201
+#     return jsonify({
+#         'message': 'Node đã được đăng ký và đồng bộ',
+#         'chain': blockchain.chain
+#     }), 201
 
 @app.route('/add_node', methods=['POST'])
 def add_node():
