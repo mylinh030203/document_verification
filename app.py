@@ -446,7 +446,7 @@ def sync_chain():
 #         return jsonify({'message': 'Chain đã là bản mới nhất', 'chain': longest_chain}), 200
 
 
-if __name__ == '_main_':
+if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
     local_ip = get_local_ip()
     current_node_url = f'http://{local_ip}:{port}'
