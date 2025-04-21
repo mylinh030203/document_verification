@@ -23,7 +23,7 @@ def get_local_ip():
         s.close()
     return ip
 
-bootstrap_url = "http://192.168.1.11:5000"
+bootstrap_url = "http://192.168.0.111:5000"
 node_registry = NodeRegistry(bootstrap_url=bootstrap_url)
 # Kết nối với Ganache
 web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
