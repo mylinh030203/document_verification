@@ -213,28 +213,28 @@ def verify_document():
 
 @app.route('/verify_on_ethereum', methods=['POST'])
 def verify_on_ethereum():
+    # Kiểm tra xem file có trong request hay không
     if 'file' not in request.files:
         return jsonify({'message': 'Không có file trong request'}), 400
 
     file = request.files['file']
+
+    # Kiểm tra nếu không có file được chọn
     if file.filename == '':
         return jsonify({'message': 'Không có file được chọn'}), 400
 
     try:
+        # Đọc nội dung của file để tạo hash
         file_content = file.read()
-        document_hash = hashlib.sha256(file_content).hexdigest()
+        document_hash = hashlib.sha256(file_content).hexdigest()  # Tạo hash từ nội dung file
+
+        # Kiểm tra hash này có tồn tại trong blockchain Ethereum
         is_stored = contract.functions.verifyDocument(document_hash).call()
 
         if is_stored:
-            return jsonify({
-                'message': 'Tài liệu không bị chỉnh sửa trên Ethereum',
-                'document_hash': document_hash
-            }), 200
+            return jsonify({'message': 'Tài liệu không bị chỉnh sửa trên Ethereum', 'document_hash': document_hash}), 200
         else:
-            return jsonify({
-                'message': 'Tài liệu đã bị chỉnh sửa hoặc không tồn tại trên Ethereum',
-                'document_hash': document_hash
-            }), 400
+            return jsonify({'message': 'Tài liệu đã bị chỉnh sửa hoặc không tồn tại trên Ethereum', 'document_hash': document_hash}), 400
 
     except Exception as e:
         return jsonify({'message': 'Lỗi khi kiểm tra tài liệu trên Ethereum', 'error': str(e)}), 500
