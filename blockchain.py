@@ -114,7 +114,7 @@ class Blockchain:
             return False
 
         # Ưu tiên đồng bộ từ bootstrap node
-        bootstrap_url = "http://192.168.0.111:5000"
+        bootstrap_url = "http://192.168.1.11:5000"
         try:
             response = requests.get(f'{bootstrap_url}/get_chain', timeout=10)
             if response.status_code == 200:

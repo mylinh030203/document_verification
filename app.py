@@ -22,7 +22,7 @@ def get_local_ip():
         s.close()
     return ip
 
-bootstrap_url = "http://192.168.0.111:5000"
+bootstrap_url = "http://192.168.1.11:5000"
 node_registry = NodeRegistry(bootstrap_url=bootstrap_url)
 
 # Kết nối với Ganache
@@ -393,6 +393,12 @@ def sync_chain():
     else:
         print("Chuỗi nhận được không hợp lệ hoặc không cần đồng bộ")
         return jsonify({'message': 'Chuỗi không cần đồng bộ'}), 400
+    
+@app.route('/get_ip', methods=['GET'])
+def get_ip():
+    local_ip = get_local_ip()
+    current_node_url = f'http://{local_ip}:{port}'
+    return jsonify({'ip': current_node_url}), 200
 
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
@@ -409,3 +415,6 @@ if __name__ == '__main__':
             print(f"Lỗi khi đăng ký với bootstrap: {str(e)}")
 
     app.run(host='0.0.0.0', port=port)
+
+
+#chỉnh ip ở bootstrap_url trong app.py và bootstrap_url trong hàm replace_chain trong blockchain.py
