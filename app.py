@@ -8,6 +8,7 @@ from blockchain import Blockchain
 from web3 import Web3
 from eth_account import Account
 from p2p import NodeRegistry
+from flask_cors import CORS
 import sys
 import socket
 
@@ -65,8 +66,8 @@ else:
 
 app = Flask(__name__)
 blockchain = Blockchain()
-
-# Đảm bảo thư mục lưu trữ file
+CORS(app)  # Thêm dòng này để cho phép CORS
+# Đảm bảo thư mục lưu trữ file đã tồn tại
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
