@@ -6,10 +6,10 @@ web3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545/"))
 web3.eth.default_account = web3.eth.accounts[0]
 
 # Đọc Smart Contract đã biên dịch (ABI & Bytecode)
-with open("D:/1.WorkspacePython/document_verification/compiled_abi.json") as f:
+with open("H:\HK8\Python\project\document_verification\compiled_abi.json") as f:
     abi = json.load(f)
 
-with open("D:/1.WorkspacePython/document_verification/compiled_bytecode.json") as f:
+with open("H:\HK8\Python\project\document_verification\compiled_bytecode.json") as f:
     bytecode = f.read()
 
 # Deploy Contract

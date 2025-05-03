@@ -99,22 +99,33 @@ class Blockchain:
             self.nodes.add(node_url)
             print(f"Đã thêm node: {node_url}")
 
+    # def verify_document(self, document_hash):
+    #     for block in self.chain:
+    #         for transaction in block['transactions']:
+    #             if transaction['document_hash'] == document_hash:
+    #                 print(f"Tìm thấy document_hash {document_hash} trong block {block['index']}")
+    #                 return True
+    #     print(f"Không tìm thấy document_hash {document_hash}")
+    #     return False
     def verify_document(self, document_hash):
         for block in self.chain:
             for transaction in block['transactions']:
-                if transaction['document_hash'] == document_hash:
-                    print(f"Tìm thấy document_hash {document_hash} trong block {block['index']}")
-                    return True
+                # Kiểm tra nếu transaction là một dict chứa 'document_hash'
+                if isinstance(transaction, dict):
+                    # Lấy giá trị 'document_hash' bên trong dictionary
+                    inner_document_hash = transaction.get('document_hash', {}).get('document_hash')
+                    if inner_document_hash == document_hash:
+                        print(f"Tìm thấy document_hash {document_hash} trong block {block['index']}")
+                        return True
         print(f"Không tìm thấy document_hash {document_hash}")
         return False
-
     def replace_chain(self):
         if len(self.chain) > 1:
             print("Chuỗi hiện tại đã có dữ liệu, không đồng bộ")
             return False
 
         # Ưu tiên đồng bộ từ bootstrap node
-        bootstrap_url = "http://192.168.1.11:5000"
+        bootstrap_url = "http://192.168.1.8:5000"
         try:
             response = requests.get(f'{bootstrap_url}/get_chain', timeout=10)
             if response.status_code == 200:

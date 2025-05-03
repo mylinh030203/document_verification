@@ -14,6 +14,9 @@ import pdfplumber
 from docx import Document
 import io
 from simhash import Simhash
+from eth_abi import decode
+
+
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -26,7 +29,7 @@ def get_local_ip():
         s.close()
     return ip
 
-bootstrap_url = "http://192.168.0.111:5000"
+bootstrap_url = "http://192.168.1.8:5000"
 node_registry = NodeRegistry(bootstrap_url=bootstrap_url)
 
 # Kết nối với Ganache
@@ -186,6 +189,81 @@ def get_nodes():
     print(f"Nodes hiện tại: {blockchain.nodes}")
     return jsonify({'nodes': list(blockchain.nodes)}), 200
 
+# @app.route('/store_document', methods=['POST'])
+# def store_document():
+#     if 'file' not in request.files:
+#         return jsonify({'message': 'Không có file trong request'}), 400
+
+#     file = request.files['file']
+#     if file.filename == '':
+#         return jsonify({'message': 'Không có file được chọn'}), 400
+
+#     try:
+#         file_content = file.read()
+#         document_hash = hashlib.sha256(file_content).hexdigest()
+#         content_hash = get_content_hash(file_content, file.filename)
+
+#         # Xác minh với các node khác
+#         blockchain.nodes = set(node_registry.get_peers())
+#         current_node = f'http://{get_local_ip()}:{request.environ["SERVER_PORT"]}'
+#         verification_results = []
+#         data_to_send = {'document_hash': document_hash}
+#         if content_hash:
+#             data_to_send['content_hash'] = content_hash
+#         files_to_send = {'file': (file.filename, file_content)}
+
+#         for node in blockchain.nodes:
+#             if node != current_node:
+#                 response = broadcast_with_retry(
+#                     f'{node}/verify_transaction',
+#                     data=data_to_send,
+#                     files=files_to_send,
+#                     timeout=60
+#                 )
+#                 if response and response.status_code == 200:
+#                     verification_results.append(response.json()['is_valid'])
+
+#         # Kiểm tra đồng thuận
+#         total_nodes = len(blockchain.nodes) - 1
+#         valid_count = sum(1 for result in verification_results if result)
+#         if total_nodes > 0 and valid_count <= total_nodes / 2:
+#             return jsonify({
+#                 'message': 'Không đạt đồng thuận',
+#                 'valid_count': valid_count,
+#                 'total_nodes': total_nodes
+#             }), 403
+
+#         # Thêm giao dịch
+#         transaction_data = {'document_hash': document_hash}
+#         if content_hash:
+#             transaction_data['content_hash'] = content_hash
+#         block_index = blockchain.add_transaction(transaction_data)
+
+#         # Broadcast giao dịch
+#         for node in blockchain.nodes:
+#             if node != current_node:
+#                 broadcast_with_retry(f'{node}/add_transaction', transaction_data)
+
+#         # Tạo block nếu đủ giao dịch
+#         if len(blockchain.transactions) >= 1:
+#             previous_block = blockchain.get_previous_block()
+#             proof = blockchain.proof_of_work(previous_block['proof'])
+#             previous_hash = blockchain.hash_block(previous_block)
+#             new_block = blockchain.create_block(proof, previous_hash)
+
+#             for node in blockchain.nodes:
+#                 if node != current_node:
+#                     broadcast_with_retry(f'{node}/add_block', new_block, timeout=60)
+
+#         return jsonify({
+#             'message': 'Tài liệu đã được lưu',
+#             'file_hash': document_hash,
+#             'block_index': block_index
+#         }), 201
+
+#     except Exception as e:
+#         return jsonify({'message': 'Lỗi khi lưu tài liệu', 'error': str(e)}), 500
+
 @app.route('/store_document', methods=['POST'])
 def store_document():
     if 'file' not in request.files:
@@ -199,6 +277,30 @@ def store_document():
         file_content = file.read()
         document_hash = hashlib.sha256(file_content).hexdigest()
         content_hash = get_content_hash(file_content, file.filename)
+
+        # Kiểm tra nếu document_hash đã tồn tại
+        if blockchain.verify_document(document_hash):
+            return jsonify({
+                'message': 'Tài liệu đã tồn tại trong blockchain',
+                'document_hash': document_hash,
+                'is_valid': False
+            }), 400
+
+        # Kiểm tra độ giống nhau của nội dung
+        if content_hash:
+            print(f"Đang kiểm tra độ giống nhau với hash: {content_hash}")
+            is_content_valid, similar_hash, similarity_message = check_content_similarity(
+                file_content, file.filename, content_hash
+            )
+            print(f"Đã kiểm tra độ giống nhau với hash: {similar_hash}, độ giống nhau: {similarity_message}")
+
+            if not is_content_valid:
+                print(f"Tài liệu giống với hash: {similar_hash}, độ giống nhau: {similarity_message}")  
+                return jsonify({
+                    'message': similarity_message,
+                    'similar_hash': similar_hash,
+                    'is_valid': False
+                }), 400
 
         # Xác minh với các node khác
         blockchain.nodes = set(node_registry.get_peers())
@@ -260,7 +362,6 @@ def store_document():
 
     except Exception as e:
         return jsonify({'message': 'Lỗi khi lưu tài liệu', 'error': str(e)}), 500
-
 @app.route('/verify_transaction', methods=['POST'])
 def verify_transaction():
     if 'file' not in request.files:
@@ -410,7 +511,56 @@ def get_chain():
         'chain': blockchain.chain,
         'length': len(blockchain.chain)
     }), 200
+    
+@app.route('/get_chain_ethereum', methods=['GET'])
+def get_chain_ethereum():
+    try:
+        # Kết nối với contract
+        contract_instance = web3.eth.contract(address=contract_address, abi=contract_abi)
 
+        # Tạo bộ lọc cho sự kiện DocumentStored
+        event_signature_hash = web3.keccak(text="DocumentStored(string)").hex()
+
+        event_filter = {
+            'fromBlock': 0,
+            'toBlock': 'latest',
+            'address': contract_address,
+            'topics': [event_signature_hash]
+        }
+
+        # Truy vấn logs
+        logs = web3.eth.get_logs(event_filter)
+
+        # Xử lý dữ liệu logs
+        documents = []
+        for log in logs:
+            # Giải mã dữ liệu sự kiện
+            document_hash = decode(['string'], log['data'])[0] 
+            block_number = log['blockNumber']
+            tx_hash = log['transactionHash'].hex()
+            # Lấy sender từ transaction
+            tx = web3.eth.get_transaction(tx_hash)
+            sender = tx['from']
+
+            documents.append({
+                'document_hash': document_hash,
+                'sender': sender,
+                'block_number': block_number,
+                'tx_hash': tx_hash
+            })
+
+        return jsonify({
+            'message': 'Danh sách tài liệu đã lưu trên Ethereum',
+            'documents': documents,
+            'total': len(documents)
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            'message': 'Lỗi khi truy xuất danh sách tài liệu',
+            'error': str(e)
+        }), 500
+        
 @app.route('/mine_block', methods=['POST'])
 def mine_block():
     previous_block = blockchain.get_previous_block()
@@ -521,5 +671,5 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"Lỗi khi đăng ký với bootstrap: {str(e)}")
 
-    node_registry.start_status_check()
+    # node_registry.start_status_check()
     app.run(host='0.0.0.0', port=port)
