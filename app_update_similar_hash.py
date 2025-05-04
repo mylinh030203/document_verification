@@ -313,7 +313,7 @@ def check_content_similarity(file_content, filename, current_content_hash):
                     similarity = jaccard_similarity(current_content_hash, stored_content_hash)
                     if similarity >= 0.65: 
                         print(f"Tài liệu {filename} giống {similarity*100:.2f}% với hash={stored_content_hash}")
-                        return False, stored_content_hash, f"Tài liệu giống {similarity*100:.2f}% với hash={stored_content_hash}"
+                        return False, stored_content_hash, f"Tài liệu giống {similarity*100:.2f}%"
                 except Exception as e:
                     print(f"Lỗi khi so sánh content_hash: {str(e)}")
                     continue
