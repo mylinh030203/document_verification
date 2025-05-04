@@ -177,24 +177,108 @@ def get_content_hash(file_content, filename):
     print(f"Không tạo được content_hash cho {filename}")
     return None
 
+# def jaccard_similarity(hash1, hash2):
+#     """Tính Jaccard similarity giữa hai MinHash."""
+#     if not hash1 or not hash2:
+#         raise ValueError(f"Jaccard similarity: Một trong hai hash rỗng - hash1={hash1}, hash2={hash2}")
+#     try:
+#         h1 = [int(x) for x in hash1.split(',')]
+#         h2 = [int(x) for x in hash2.split(',')]
+#         if len(h1) != 128 or len(h2) != 128:
+#             raise ValueError(f"Hash không hợp lệ: len(hash1)={len(h1)}, len(hash2)={len(h2)}")
+#         m1, m2 = MinHash(num_perm=128), MinHash(num_perm=128)
+#         m1.hashvalues = h1
+#         m2.hashvalues = h2
+#         similarity = m1.jaccard(m2)
+#         print(f"Jaccard similarity giữa hash1={hash1[:50]}... và hash2={hash2[:50]}...: {similarity:.4f}")
+#         return similarity
+#     except Exception as e:
+#         print(f"Lỗi nghiêm trọng khi tính Jaccard similarity: hash1={hash1[:50]}..., hash2={hash2[:50]}..., error={str(e)}")
+#         raise
+
 def jaccard_similarity(hash1, hash2):
-    """Tính Jaccard similarity giữa hai MinHash."""
+    """Tính Jaccard similarity giữa hai MinHash với độ chính xác cao."""
     if not hash1 or not hash2:
-        raise ValueError(f"Jaccard similarity: Một trong hai hash rỗng - hash1={hash1}, hash2={hash2}")
+        print(f"Cảnh báo: Một trong hai hash rỗng - hash1={hash1}, hash2={hash2}")
+        return 0.0  # Trả về 0 nếu một trong hai hash rỗng
+    
+    # Nếu hai hash giống hệt nhau, trả về 1.0 ngay lập tức
+    if hash1 == hash2:
+        return 1.0
+    
     try:
-        h1 = [int(x) for x in hash1.split(',')]
-        h2 = [int(x) for x in hash2.split(',')]
+        # Chuyển đổi từ chuỗi hash (dạng "num1,num2,num3,...") sang list số nguyên
+        h1 = [int(x.strip()) for x in hash1.split(',') if x.strip()]
+        h2 = [int(x.strip()) for x in hash2.split(',') if x.strip()]
+        
+        # Kiểm tra độ dài hash
         if len(h1) != 128 or len(h2) != 128:
-            raise ValueError(f"Hash không hợp lệ: len(hash1)={len(h1)}, len(hash2)={len(h2)}")
-        m1, m2 = MinHash(num_perm=128), MinHash(num_perm=128)
+            print(f"Cảnh báo: Độ dài hash không hợp lệ - len(hash1)={len(h1)}, len(hash2)={len(h2)}")
+            return 0.0
+        
+        # Tạo MinHash từ hashvalues
+        m1 = MinHash(num_perm=128)
+        m2 = MinHash(num_perm=128)
         m1.hashvalues = h1
         m2.hashvalues = h2
+        
+        # Tính similarity với độ chính xác cao
         similarity = m1.jaccard(m2)
-        print(f"Jaccard similarity giữa hash1={hash1[:50]}... và hash2={hash2[:50]}...: {similarity:.4f}")
+        
+        # Debug: Kiểm tra nếu similarity thấp bất thường với hash gần giống
+        if similarity < 0.7 and sum(1 for a, b in zip(h1, h2) if a == b) > 100:
+            print(f"⚠️ Cảnh báo: Similarity thấp bất thường ({similarity:.4f}) dù có {sum(1 for a, b in zip(h1, h2) if a == b)} giá trị hash trùng nhau")
+        
+        print(f"Jaccard similarity: {similarity:.4f} (hash1={hash1[:30]}..., hash2={hash2[:30]}...)")
         return similarity
+        
     except Exception as e:
-        print(f"Lỗi nghiêm trọng khi tính Jaccard similarity: hash1={hash1[:50]}..., hash2={hash2[:50]}..., error={str(e)}")
-        raise
+        print(f"Lỗi khi tính Jaccard similarity: {str(e)}")
+        return 0.0  # Trả về 0 nếu có lỗi
+
+# def check_content_similarity(file_content, filename, current_content_hash):
+#     """Kiểm tra độ giống nhau của nội dung với các tài liệu đã lưu."""
+#     if not current_content_hash:
+#         print(f"Bỏ qua kiểm tra độ giống cho {filename}: Không có content_hash")
+#         return True, None, "Không kiểm tra độ giống nhau (không phải văn bản)"
+
+#     blockchain.nodes = set(node_registry.get_peers())
+#     print(f"Nodes trước khi đồng bộ: {blockchain.nodes}")
+#     try:
+#         blockchain.replace_chain()
+#     except Exception as e:
+#         print(f"Lỗi khi đồng bộ blockchain: {str(e)}")
+#         return True, None, "Không kiểm tra độ giống (lỗi đồng bộ blockchain)"
+#     print(f"Đã đồng bộ blockchain, length={len(blockchain.chain)}")
+
+#     if len(blockchain.chain) <= 1:
+#         print("Blockchain rỗng hoặc chỉ có genesis block, không kiểm tra độ giống")
+#         return True, None, "Tài liệu không giống bất kỳ tài liệu nào đã lưu"
+
+#     for block in blockchain.chain:
+#         transactions = block.get('transactions', [])
+#         if not transactions:
+#             print(f"Block {block['index']} không có giao dịch")
+#             continue
+#         for tx in transactions:
+#             # stored_doc_hash = tx.get('document_hash')
+#             # stored_content_hash = tx.get('content_hash')
+#             document_hash_obj = tx.get('document_hash', {})
+#             stored_content_hash = document_hash_obj.get('content_hash')
+#             stored_doc_hash = document_hash_obj.get('document_hash')
+#             print(f"Kiểm tra block {block['index']}, tx: document_hash={stored_doc_hash}, content_hash={stored_content_hash}")
+#             if stored_content_hash:
+#                 try:
+#                     similarity = jaccard_similarity(current_content_hash, stored_content_hash)
+#                     if similarity >= 0.65:
+#                         print(f"Tài liệu {filename} giống {similarity*100:.2f}% với hash={stored_doc_hash}")
+#                         return False, stored_doc_hash, f"Tài liệu giống {similarity*100:.2f}% với hash={stored_doc_hash}"
+#                 except Exception as e:
+#                     print(f"Lỗi khi so sánh content_hash: {str(e)}")
+#                     continue
+    
+#     print(f"Tài liệu {filename} không giống bất kỳ tài liệu nào đã lưu")
+#     return True, None, "Tài liệu không giống bất kỳ tài liệu nào đã lưu"
 
 def check_content_similarity(file_content, filename, current_content_hash):
     """Kiểm tra độ giống nhau của nội dung với các tài liệu đã lưu."""
@@ -221,19 +305,19 @@ def check_content_similarity(file_content, filename, current_content_hash):
             print(f"Block {block['index']} không có giao dịch")
             continue
         for tx in transactions:
-            stored_doc_hash = tx.get('document_hash')
-            stored_content_hash = tx.get('content_hash')
-            print(f"Kiểm tra block {block['index']}, tx: document_hash={stored_doc_hash}, content_hash={stored_content_hash}")
+            document_hash_obj = tx.get('document_hash', {})
+            stored_content_hash = document_hash_obj.get('content_hash')
             if stored_content_hash:
+                print(f"⚠️ So sánh với content_hash lưu: {stored_content_hash}")
                 try:
                     similarity = jaccard_similarity(current_content_hash, stored_content_hash)
-                    if similarity >= 0.65:
-                        print(f"Tài liệu {filename} giống {similarity*100:.2f}% với hash={stored_doc_hash}")
-                        return False, stored_doc_hash, f"Tài liệu giống {similarity*100:.2f}% với hash={stored_doc_hash}"
+                    if similarity >= 0.65: 
+                        print(f"Tài liệu {filename} giống {similarity*100:.2f}% với hash={stored_content_hash}")
+                        return False, stored_content_hash, f"Tài liệu giống {similarity*100:.2f}% với hash={stored_content_hash}"
                 except Exception as e:
                     print(f"Lỗi khi so sánh content_hash: {str(e)}")
                     continue
-    
+
     print(f"Tài liệu {filename} không giống bất kỳ tài liệu nào đã lưu")
     return True, None, "Tài liệu không giống bất kỳ tài liệu nào đã lưu"
 
