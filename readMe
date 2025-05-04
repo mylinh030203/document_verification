@@ -1,3 +1,5 @@
 pip install simhash
 pip install pdfplumber python-docx pyclamd
+pip install pdfplumber==0.10.4 pdfminer.six==20221105 --no-cache-dir
+pip install datasketch
 thư viên cần tải thêm
