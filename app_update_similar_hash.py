@@ -17,6 +17,7 @@ from datasketch import MinHash
 from eth_abi import decode
 import re
 import unicodedata
+from flask_cors import CORS
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -29,7 +30,7 @@ def get_local_ip():
         s.close()
     return ip
 
-bootstrap_url = "http://192.168.1.9:5000"
+bootstrap_url = "http://192.168.1.8:5000"
 node_registry = NodeRegistry(bootstrap_url=bootstrap_url)
 
 # Kết nối với Ganache
@@ -71,6 +72,7 @@ else:
     print("❌ Không thể kết nối với Ethereum node!")
 
 app = Flask(__name__)
+CORS(app)
 blockchain = Blockchain()
 
 # Đảm bảo thư mục lưu trữ file
@@ -622,7 +624,7 @@ def verify_on_ethereum():
         return jsonify({
             'document_hash': document_hash,
             'is_verified': is_stored,
-            'message': 'Đã xác minh trên Ethereum' if is_stored else 'Không tìm thấy trên Ethereum'
+            'message': 'Tài liệu hợp lệ' if is_stored else 'Tài liệu không tồn tại trên Ethereum'
         }), 200
 
     except Exception as e:
@@ -685,28 +687,48 @@ def get_chain_ethereum():
         # Truy vấn logs
         logs = web3.eth.get_logs(event_filter)
 
-        # Xử lý dữ liệu logs
-        documents = []
-        for log in logs:
+        # Xử lý dữ liệu logs thành chuỗi khối
+        chain = []
+        previous_hash = "0"  # Hash khởi đầu
+        proof = 1  # Giá trị proof khởi đầu
+
+        for index, log in enumerate(logs, start=1):
             # Giải mã dữ liệu sự kiện
-            document_hash = decode(['string'], log['data'])[0] 
+            document_hash = decode(['string'], log['data'])[0]
             block_number = log['blockNumber']
             tx_hash = log['transactionHash'].hex()
-            # Lấy sender từ transaction
             tx = web3.eth.get_transaction(tx_hash)
             sender = tx['from']
+            timestamp = web3.eth.get_block(block_number)['timestamp']  # Lấy timestamp từ block
 
-            documents.append({
-                'document_hash': document_hash,
-                'sender': sender,
-                'block_number': block_number,
-                'tx_hash': tx_hash
-            })
+            # Tạo giao dịch từ document_hash
+            transactions = [
+                {
+                    "document_hash": {
+                        # "content_hash": "15589848778398159345",  # Giá trị giả lập, có thể thay bằng logic khác
+                        "document_hash": document_hash
+                    }
+                }
+            ]
+
+            # Tính previous_hash (giả lập, có thể dùng hash của block trước)
+            current_hash = web3.keccak(hexstr=tx_hash).hex()  # Giả lập hash hiện tại
+            if index > 1:
+                previous_hash = current_hash  # Hash của block trước
+
+            # Tạo block cho chuỗi
+            block = {
+                "index": index,
+                "previous_hash": previous_hash,
+                "proof": proof,  # Giá trị proof giả lập, có thể thay bằng logic PoW
+                "timestamp": timestamp,
+                "transactions": transactions
+            }
+            chain.append(block)
+            proof += 1  # Tăng proof cho block tiếp theo
 
         return jsonify({
-            'message': 'Danh sách tài liệu đã lưu trên Ethereum',
-            'documents': documents,
-            'total': len(documents)
+            "chain": chain
         }), 200
 
     except Exception as e:
